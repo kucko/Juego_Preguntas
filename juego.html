@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Juego de Preguntas</title>
+
+  <!-- Bootstrap CSS (CDN) -->
+  <link 
+    rel="stylesheet" 
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css"
+  />
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f8f9fa;
+    }
+    .container {
+      max-width: 800px;
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0px 0px 10px rgba(0,0,0,0.1);
+    }
+    #contador {
+      font-size: 36px;
+      font-weight: bold;
+      color: red;
+      margin-top: 20px;
+      padding: 10px;
+      background-color: #ffe6e6;
+      border-radius: 10px;
+    }
+    #pregunta-container {
+      font-size: 48px;
+      padding: 40px;
+      margin-top: 20px;
+      min-height: 200px;
+      background-color: #f1f3f5;
+      border-radius: 15px;
+      line-height: 1.2;
+    }
+    #respuesta {
+      font-size: 40px;
+      padding: 30px;
+      margin-top: 20px;
+      background-color: #e9ecef;
+      border-radius: 10px;
+      line-height: 1.2;
+      display: none; /* Oculto por defecto */
+    }
+    footer {
+      text-align: center;
+      margin-top: 40px;
+      padding: 10px;
+      color: #555;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="container text-center mt-4">
+    <h1 class="mb-4">Juego de Preguntas</h1>
+
+    <!-- Input para definir el tiempo de respuesta -->
+    <label for="tiempoInput" class="form-label">
+      Tiempo para responder (segundos):
+    </label>
+    <input 
+      type="number" 
+      id="tiempoInput" 
+      class="form-control mb-3" 
+      value="10"
+    />
+
+    <!-- Input para seleccionar el archivo .xlsx -->
+    <input 
+      type="file" 
+      id="fileInput" 
+      class="form-control mb-3" 
+      accept=".xlsx"
+    />
+
+    <!-- Botón para lanzar dado (inicia deshabilitado hasta que se cargue el archivo) -->
+    <button 
+      id="lanzarDado" 
+      class="btn btn-primary w-100" 
+      disabled
+    >
+      Lanzar Dado
+    </button>
+
+    <!-- Contador de tiempo -->
+    <div 
+      id="contador" 
+      class="mt-3" 
+      style="display:none"
+    >
+      Tiempo: <span id="tiempoRestante"></span>s
+    </div>
+
+    <!-- Contenedor para la pregunta -->
+    <div 
+      id="pregunta-container" 
+      class="mt-4 p-3 border rounded bg-light"
+    >
+      <!-- Aquí aparecerá la pregunta aleatoria -->
+    </div>
+
+    <!-- Botones de Correcto / Incorrecto (ocultos hasta que se lance el dado) -->
+    <button 
+      id="correcto" 
+      class="btn btn-success mt-3 w-100" 
+      style="display:none"
+    >
+      Correcto
+    </button>
+    <button 
+      id="incorrecto" 
+      class="btn btn-danger mt-2 w-100" 
+      style="display:none"
+    >
+      Incorrecto
+    </button>
+
+    <!-- Contenedor para la respuesta (inicialmente oculto) -->
+    <div id="respuesta" class="mt-3">
+      <!-- Aquí aparecerá la respuesta -->
+    </div>
+
+    <!-- Botón de siguiente turno (opcional, puedes usarlo para generar otra pregunta) -->
+    <button 
+      id="siguienteTurno" 
+      class="btn btn-secondary mt-3 w-100" 
+      style="display:none"
+    >
+      Siguiente Turno
+    </button>
+  </div>
+
+  <footer>
+    INCOLMOTOS YAMAHA<br>
+    División TI - Nuevas Tecnologías
+  </footer>
+
+  <!-- Bootstrap JS (CDN) -->
+  <script 
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
+  ></script>
+
+  <!-- Librería SheetJS para leer archivos XLSX (CDN) -->
+  <script 
+    src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"
+  ></script>
+
+  <!-- Script principal -->
+  <script>
+    // Variables globales
+    let workbook;        // Contendrá el workbook leído del XLSX
+    let data = [];       // Contendrá las filas leídas
+    let timerInterval;   // Para controlar el setInterval del contador
+    let tiempoRestante;  // Tiempo que va decreciendo
+
+    // Referencias a elementos del DOM
+    const tiempoInput        = document.getElementById("tiempoInput");
+    const fileInput          = document.getElementById("fileInput");
+    const lanzarDadoBtn      = document.getElementById("lanzarDado");
+    const preguntaContainer  = document.getElementById("pregunta-container");
+    const contador           = document.getElementById("contador");
+    const tiempoRestanteSpan = document.getElementById("tiempoRestante");
+    const correctoBtn        = document.getElementById("correcto");
+    const incorrectoBtn      = document.getElementById("incorrecto");
+    const respuestaDiv       = document.getElementById("respuesta");
+    const siguienteTurnoBtn  = document.getElementById("siguienteTurno");
+
+    // Eventos
+    fileInput.addEventListener("change", leerArchivo);
+    lanzarDadoBtn.addEventListener("click", lanzarDado);
+    correctoBtn.addEventListener("click", mostrarRespuesta);
+    incorrectoBtn.addEventListener("click", mostrarRespuesta);
+    siguienteTurnoBtn.addEventListener("click", () => {
+      // Si quieres que al dar "Siguiente Turno" se genere otra pregunta
+      // y se reinicie todo, lo puedes hacer aquí:
+      lanzarDado();
+    });
+
+    // Función para leer el archivo XLSX cuando se selecciona
+    function leerArchivo(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const dataArray = new Uint8Array(evt.target.result);
+        workbook = XLSX.read(dataArray, { type: "array" });
+
+        // Tomamos la primera hoja (sheet)
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+
+        // Convertimos la hoja a un array de arrays (cada fila es un subarray)
+        // header:1 => la primera fila NO se trata como cabecera, sino como datos.
+        data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        // Habilitamos el botón de "Lanzar Dado"
+        lanzarDadoBtn.disabled = false;
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // Función que se ejecuta al hacer clic en "Lanzar Dado"
+    function lanzarDado() {
+      if (!workbook) {
+        alert("No se ha cargado ningún archivo XLSX");
+        return;
+      }
+      if (data.length === 0) {
+        alert("El archivo XLSX está vacío o no tiene datos.");
+        return;
+      }
+
+      // Ocultamos la respuesta y botones de siguiente turno
+      respuestaDiv.style.display = "none";
+      siguienteTurnoBtn.style.display = "none";
+
+      // Mostramos los botones de correcto/incorrecto
+      correctoBtn.style.display = "block";
+      incorrectoBtn.style.display = "block";
+
+      // Tomar un índice aleatorio dentro de las filas
+      const randomIndex = Math.floor(Math.random() * data.length);
+      const row = data[randomIndex];
+
+      // row[0] = pregunta, row[1] = respuesta (ajusta según tu Excel)
+      preguntaContainer.innerHTML = row[0] || "Sin pregunta";
+      // Guardamos la respuesta en el div, pero lo ocultamos de inicio
+      respuestaDiv.innerHTML = row[1] || "Sin respuesta";
+
+      // Iniciar el contador de tiempo
+      iniciarContador();
+    }
+
+    // Inicia el contador en base al valor de tiempoInput
+    function iniciarContador() {
+      // Tomamos el valor que el usuario haya escrito, por defecto 10
+      tiempoRestante = parseInt(tiempoInput.value, 10) || 10;
+
+      contador.style.display = "block";
+      tiempoRestanteSpan.textContent = tiempoRestante;
+
+      // Si ya existía un intervalo anterior, lo limpiamos
+      if (timerInterval) {
+        clearInterval(timerInterval);
+      }
+
+      // Disminuimos el tiempo cada segundo
+      timerInterval = setInterval(() => {
+        tiempoRestante--;
+        tiempoRestanteSpan.textContent = tiempoRestante;
+
+        if (tiempoRestante <= 0) {
+          clearInterval(timerInterval);
+          contador.style.display = "none";
+          alert("¡Tiempo agotado!");
+          mostrarRespuesta();
+        }
+      }, 1000);
+    }
+
+    // Muestra la respuesta y detiene el contador (si sigue corriendo)
+    function mostrarRespuesta() {
+      // Si ya hay un contador activo, lo detenemos
+      clearInterval(timerInterval);
+      contador.style.display = "none";
+
+      // Mostramos la respuesta
+      respuestaDiv.style.display = "block";
+
+      // Ocultamos los botones de correcto/incorrecto (si quieres)
+      correctoBtn.style.display = "none";
+      incorrectoBtn.style.display = "none";
+
+      // Mostramos el botón de siguiente turno (si quieres)
+      siguienteTurnoBtn.style.display = "block";
+    }
+  </script>
+</body>
+</html>
